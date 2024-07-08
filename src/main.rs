@@ -1,6 +1,9 @@
+mod blockchain;
+
+use blockchain::BlockchainListener;
 use clap::Parser;
 use dotenv::dotenv;
-use log::info;
+use log::{info, error};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -11,7 +14,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     dotenv().ok();
 
     // Initialize logger
@@ -23,7 +25,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting blockchain event daeamon");
     info!("Connecting to node: {}", args.node_url);
 
-    // TODO: Set up blockchain connection and event listener
+    match BlockchainListener::new(&args.node_url).await {
+        Ok(listener) => {
+            if let Err(e) = listener.listen_for_events().await {
+                error!("Error listening for event: {:?}", e);
+            }
+        },
+        Err(e) => error!("Failed to create Blockchain Listener: {:?}", e),
+    }
 
     info!("Blockchain event daemon stopped!");
     Ok(())
