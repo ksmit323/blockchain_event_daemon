@@ -1,38 +1,59 @@
+use eyre::Result;
+use futures_util::StreamExt;
 use log::{error, info};
-use web3::futures::StreamExt;
-use web3::transports::WebSocket;
-use web3::types::{BlockNumber, FilterBuilder, H160};
-use web3::Web3;
+use std::str::FromStr;
+
+use alloy::{
+    primitives::{address, Address, U256},
+    providers::{Provider, ProviderBuilder, RootProvider, WsConnect},
+    pubsub::PubSubFrontend,
+    rpc::types::{BlockNumberOrTag, Filter, TransactionRequest},
+    signers::local::PrivateKeySigner,
+    sol,
+    sol_types::SolEvent,
+};
 
 pub struct BlockchainListener {
-    web3: Web3<WebSocket>,
+    provider: RootProvider<PubSubFrontend>,
+    contract_address: Address,
+    // contract_abi: Abi,
 }
 
 impl BlockchainListener {
-    pub async fn new(node_url: &str) -> Result<Self, web3::Error> {
-        let transport = WebSocket::new(node_url).await?;
-        let web3 = Web3::new(transport);
-        Ok(Self { web3 })
+    pub async fn new(
+        node_url: &str,
+        contract_address: &str,
+        // json_abi: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let ws = WsConnect::new(node_url);
+        let provider = ProviderBuilder::new().on_ws(ws).await?;
+        let contract_address = contract_address.parse()?;
+
+        // let contract_abi: Abi = serde_json::from_str(json_abi)?;
+
+        Ok(Self {
+            provider,
+            contract_address,
+            // contract_abi,
+        })
     }
 
-    pub async fn listen_for_events(&self) -> Result<(), web3::Error> {
-        let filter = FilterBuilder::default()
-            .from_block(BlockNumber::Latest)
-            .address(vec![H160::zero()]) //* Will need to replace with an actual contract address */
-            .build();
+    pub async fn listen_for_events(&self) -> Result<()> {
+        // Create a filter to watch for all contract events
+        let filter = Filter::new()
+            .address(self.contract_address)
+            .from_block(BlockNumberOrTag::Latest);
 
-        let mut stream = self.web3.eth_subscribe().subscribe_logs(filter).await?;
+        // Subscribe to logs
+        let sub = self.provider.subscribe_logs(&filter).await?;
+        let mut stream = sub.into_stream();
 
         info!("Listening for blockchain events...");
 
         while let Some(log) = stream.next().await {
-            match log {
-                Ok(log) => {
-                    info!("Received Event: {:?}", log)
-                }
-                Err(e) => error!("Error receiving event: {:?}", e),
-            }
+            info!("Received event: {:?}", log);
         }
+
         Ok(())
     }
 }
